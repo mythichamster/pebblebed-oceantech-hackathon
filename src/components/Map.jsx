@@ -6,6 +6,21 @@ import { ScatterplotLayer } from '@deck.gl/layers'
 import { getVesselTypeName, mmsiToFlag } from '../utils/vesselSpecs'
 import { NY_HARBOR_CENTER, circlePolygon } from '../utils/geo'
 
+/**
+ * Compute a [SW, NE] bounding box for a circle around NY Harbor.
+ * Uses the same flat-earth approximation as circlePolygon() in geo.js.
+ */
+function zoneBounds(radiusNM) {
+  const { lat, lon } = NY_HARBOR_CENTER
+  const radiusKm = radiusNM * 1.852
+  const deltaLat = radiusKm / 110.574
+  const deltaLon = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180))
+  return [
+    [lon - deltaLon, lat - deltaLat], // SW corner
+    [lon + deltaLon, lat + deltaLat], // NE corner
+  ]
+}
+
 // Port of New York / New Jersey center
 const INITIAL_VIEW = {
   longitude: -74.02,
@@ -143,6 +158,29 @@ export default function Map({ vessels, selectedVessel, onSelectVessel, authority
 
       map.current.setPaintProperty(`zone-${key}-fill`, 'fill-opacity', fillOpacity * fillMult)
       map.current.setPaintProperty(`zone-${key}-line`, 'line-opacity', lineOpacity * lineMult)
+    })
+  }, [authorityFilter])
+
+  // Fly to zone bounds when regulatory authority filter changes
+  useEffect(() => {
+    if (!map.current) return
+
+    if (authorityFilter === 'ALL') {
+      map.current.flyTo({
+        center: [INITIAL_VIEW.longitude, INITIAL_VIEW.latitude],
+        zoom: INITIAL_VIEW.zoom,
+        duration: 1200,
+      })
+      return
+    }
+
+    const zone = ZONE_LAYERS.find((z) => z.key === authorityFilter)
+    if (!zone) return
+
+    map.current.fitBounds(zoneBounds(zone.radiusNM), {
+      padding: 60,
+      duration: 1200,
+      maxZoom: 15,
     })
   }, [authorityFilter])
 
