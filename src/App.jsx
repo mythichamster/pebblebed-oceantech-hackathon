@@ -16,6 +16,13 @@ function App() {
   const [tierFilter, setTierFilter] = useState('ALL') // ALL, HIGH, MODERATE, LOW
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
+  const selectedVesselRef = useRef(null)
+  const isMountedRef = useRef(false)
+
+  // Keep ref in sync so onmessage can read latest value without being a dependency
+  useEffect(() => {
+    selectedVesselRef.current = selectedVessel
+  }, [selectedVessel])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -37,12 +44,11 @@ function App() {
           setLastUpdated(Date.now())
           setDemoMode(data.demoMode || false)
 
-          // Update selected vessel if it exists in new data
-          if (selectedVessel) {
-            const updated = data.vessels.find((v) => v.mmsi === selectedVessel.mmsi)
-            if (updated) {
-              setSelectedVessel(updated)
-            }
+          // Use ref so this handler never needs to be recreated
+          const current = selectedVesselRef.current
+          if (current) {
+            const updated = data.vessels.find((v) => v.mmsi === current.mmsi)
+            if (updated) setSelectedVessel(updated)
           }
         }
       } catch (e) {
@@ -53,7 +59,10 @@ function App() {
     ws.onclose = () => {
       console.log('🔌 WebSocket disconnected, reconnecting in 3s...')
       setConnected(false)
-      reconnectTimeoutRef.current = setTimeout(connect, 3000)
+      // Only reconnect if the component is still mounted (not a cleanup close)
+      if (isMountedRef.current) {
+        reconnectTimeoutRef.current = setTimeout(connect, 3000)
+      }
     }
 
     ws.onerror = (error) => {
@@ -62,16 +71,16 @@ function App() {
     }
 
     wsRef.current = ws
-  }, [selectedVessel])
+  }, []) // stable — no deps, uses refs for mutable values
 
-  // Connect on mount
+  // Connect on mount only
   useEffect(() => {
+    isMountedRef.current = true
     connect()
 
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-      }
+      isMountedRef.current = false
+      clearTimeout(reconnectTimeoutRef.current)
       wsRef.current?.close()
     }
   }, [connect])

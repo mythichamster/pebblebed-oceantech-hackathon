@@ -90,6 +90,8 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
 
     return () => {
       map.current?.remove()
+      map.current = null
+      deckOverlay.current = null
     }
   }, [])
 
