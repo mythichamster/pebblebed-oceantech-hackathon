@@ -1,1 +1,0 @@
-"""OceanTech hackathon source package."""
