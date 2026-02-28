@@ -81,3 +81,56 @@ export function formatCO2(tonnes) {
   }
   return tonnes.toFixed(0)
 }
+
+// Remediation strategies regulators can pitch to vessels (fuel reduction fractions)
+export const REMEDIATION_STRATEGIES = [
+  { id: 'slow-steam', label: 'Slow steam', fuelReductionFraction: 0.15 },
+  { id: 'wind-propulsion', label: 'Wind propulsion', fuelReductionFraction: 0.05 },
+  { id: 'hull-cleaning', label: 'Hull cleaning', fuelReductionFraction: 0.2 },
+]
+
+// Tier thresholds (must match calculateEmissions)
+const TIER_CO2_HIGH = 80
+const TIER_CO2_MODERATE = 10
+
+function getTierForCo2(co2Tpd) {
+  if (co2Tpd > TIER_CO2_HIGH) return { tier: 'HIGH', tierColor: '#ff4d4d' }
+  if (co2Tpd > TIER_CO2_MODERATE) return { tier: 'MODERATE', tierColor: '#ff9500' }
+  return { tier: 'LOW', tierColor: '#00c853' }
+}
+
+/**
+ * Projected fuel and CO2 after applying selected remediation strategies.
+ * Reductions are applied multiplicatively.
+ * @param {number} baselineFuelTpd - Baseline fuel tonnes per day
+ * @param {number} baselineCo2Tpd - Baseline CO2 tonnes per day
+ * @param {Array<{ fuelReductionFraction: number }>} selectedStrategies - Strategies to apply
+ * @returns {{ projectedFuelTpd: number, projectedCo2Tpd: number, reductionFraction: number, projectedTier: string, projectedTierColor: string }}
+ */
+export function getProjectedEmissions(baselineFuelTpd, baselineCo2Tpd, selectedStrategies) {
+  if (!selectedStrategies?.length) {
+    const base = getTierForCo2(baselineCo2Tpd)
+    return {
+      projectedFuelTpd: baselineFuelTpd,
+      projectedCo2Tpd: baselineCo2Tpd,
+      reductionFraction: 0,
+      projectedTier: base.tier,
+      projectedTierColor: base.tierColor,
+    }
+  }
+  const factor = selectedStrategies.reduce(
+    (acc, s) => acc * (1 - s.fuelReductionFraction),
+    1
+  )
+  const projectedFuelTpd = baselineFuelTpd * factor
+  const projectedCo2Tpd = baselineCo2Tpd * factor
+  const reductionFraction = 1 - factor
+  const { tier: projectedTier, tierColor: projectedTierColor } = getTierForCo2(projectedCo2Tpd)
+  return {
+    projectedFuelTpd,
+    projectedCo2Tpd,
+    reductionFraction,
+    projectedTier,
+    projectedTierColor,
+  }
+}

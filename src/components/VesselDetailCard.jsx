@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { ChevronLeft, Navigation, Gauge, Anchor, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react'
 import { getVesselTypeName, getVesselTypeEmoji, mmsiToFlag, mmsiToCountry } from '../utils/vesselSpecs'
+import {
+  REMEDIATION_STRATEGIES,
+  getProjectedEmissions,
+} from '../utils/emissions'
 
 export default function VesselDetailCard({ vessel, onClose }) {
   const [showMethodology, setShowMethodology] = useState(false)
+  const [selectedStrategyIds, setSelectedStrategyIds] = useState(new Set())
 
   if (!vessel) {
     return (
@@ -139,6 +144,86 @@ export default function VesselDetailCard({ vessel, onClose }) {
             </span>
           </div>
         </div>
+
+        {/* Remediation scenarios */}
+        {vessel.fuelBurnedTonnesPerDay != null && vessel.co2PerDayTonnes != null ? (
+          <div className="mt-3 border border-border rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-bg-secondary border-b border-border">
+              <h3 className="text-sm font-semibold text-white">Remediation scenarios</h3>
+              <p className="text-xs text-text-muted mt-0.5">Pitch a strategy to see projected fuel and CO₂</p>
+            </div>
+            <div className="px-3 py-2 space-y-2">
+              {REMEDIATION_STRATEGIES.map((strategy) => {
+                const checked = selectedStrategyIds.has(strategy.id)
+                const pct = Math.round(strategy.fuelReductionFraction * 100)
+                return (
+                  <label
+                    key={strategy.id}
+                    className="flex items-center gap-2 cursor-pointer text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedStrategyIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(strategy.id)) next.delete(strategy.id)
+                          else next.add(strategy.id)
+                          return next
+                        })
+                      }}
+                      className="rounded border-border bg-bg-secondary text-accent-teal focus:ring-accent-teal"
+                    />
+                    <span className="text-white">{strategy.label}</span>
+                    <span className="text-text-muted text-xs">(−{pct}% fuel)</span>
+                  </label>
+                )
+              })}
+            </div>
+            {selectedStrategyIds.size > 0 && (() => {
+              const baselineFuel = vessel.fuelBurnedTonnesPerDay
+              const baselineCo2 = vessel.co2PerDayTonnes
+              const selectedStrategies = REMEDIATION_STRATEGIES.filter((s) =>
+                selectedStrategyIds.has(s.id)
+              )
+              const projected = getProjectedEmissions(baselineFuel, baselineCo2, selectedStrategies)
+              const reductionPct =
+                baselineCo2 > 0
+                  ? Math.round(projected.reductionFraction * 100)
+                  : 0
+              return (
+                <div className="px-3 py-3 border-t border-border bg-bg-primary/50 space-y-2 text-sm">
+                  <div className="flex justify-between text-text-muted">
+                    <span>Current</span>
+                    <span className="font-mono text-white">
+                      ~{baselineFuel.toFixed(1)} t/day fuel · {baselineCo2.toFixed(0)} t/day CO₂
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white">If adopted</span>
+                    <span className="font-mono font-semibold" style={{ color: projected.projectedTierColor }}>
+                      ~{projected.projectedFuelTpd.toFixed(1)} t/day fuel · {projected.projectedCo2Tpd.toFixed(0)} t/day CO₂
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-text-muted text-xs">{reductionPct}% reduction</span>
+                    <span
+                      className={`px-2 py-0.5 text-xs font-semibold rounded border ${
+                        tierBadgeColors[projected.projectedTier]
+                      }`}
+                    >
+                      {projected.projectedTier}
+                    </span>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        ) : (
+          <div className="mt-3 px-3 py-2 border border-border rounded-lg text-xs text-text-muted">
+            Emissions data required to show remediation scenarios.
+          </div>
+        )}
 
         {/* Why Trust This - Collapsible */}
         <div className="mt-3 border border-border rounded-lg overflow-hidden">
