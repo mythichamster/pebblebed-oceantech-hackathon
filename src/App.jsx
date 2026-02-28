@@ -3,6 +3,7 @@ import Header from './components/Header'
 import Map from './components/Map'
 import Leaderboard from './components/Leaderboard'
 import VesselDetailCard from './components/VesselDetailCard'
+import { getVesselTypeKey } from './utils/vesselSpecs'
 import './index.css'
 
 const WS_URL = 'ws://localhost:3001'
@@ -14,6 +15,7 @@ function App() {
   const [demoMode, setDemoMode] = useState(false)
   const [connected, setConnected] = useState(false)
   const [tierFilter, setTierFilter] = useState('ALL') // ALL, HIGH, MODERATE, LOW
+  const [typeFilter, setTypeFilter] = useState('ALL') // ALL, CONTAINER, TANKER, PASSENGER, FISHING, SERVICE, CARGO
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
   const selectedVesselRef = useRef(null)
@@ -113,16 +115,20 @@ function App() {
       }
     })
 
-    const filtered = tierFilter === 'ALL'
+    let filtered = tierFilter === 'ALL'
       ? vessels
       : vessels.filter((v) => v.emissionTier === tierFilter)
+
+    if (typeFilter !== 'ALL') {
+      filtered = filtered.filter((v) => getVesselTypeKey(v.shipTypeCode) === typeFilter)
+    }
 
     return {
       totalCO2: Math.round(total),
       tierCounts: counts,
       filteredVessels: filtered,
     }
-  }, [vessels, tierFilter])
+  }, [vessels, tierFilter, typeFilter])
 
   const handleSelectVessel = useCallback((vessel) => {
     setSelectedVessel(vessel)
@@ -156,24 +162,22 @@ function App() {
           />
         </div>
 
-        {/* Right Panel - 40% */}
-        <div className="w-[40%] h-full flex flex-col p-3 gap-3">
-          {/* Leaderboard - Top half */}
-          <div className="flex-1 min-h-0">
-            <Leaderboard
-              vessels={filteredVessels}
-              selectedVessel={selectedVessel}
-              onSelectVessel={handleSelectVessel}
-            />
-          </div>
-
-          {/* Vessel Detail - Bottom half */}
-          <div className="flex-1 min-h-0">
+        {/* Right Panel - 40%: full-height Leaderboard or full-height DetailCard */}
+        <div className="w-[40%] h-full flex flex-col p-3">
+          {selectedVessel ? (
             <VesselDetailCard
               vessel={selectedVessel}
               onClose={handleCloseDetail}
             />
-          </div>
+          ) : (
+            <Leaderboard
+              vessels={filteredVessels}
+              selectedVessel={selectedVessel}
+              onSelectVessel={handleSelectVessel}
+              typeFilter={typeFilter}
+              onTypeFilterChange={setTypeFilter}
+            />
+          )}
         </div>
       </div>
 

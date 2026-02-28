@@ -1,7 +1,17 @@
 import { getVesselTypeName, getVesselTypeEmoji, mmsiToFlag } from '../utils/vesselSpecs'
 import { formatCO2 } from '../utils/emissions'
 
-export default function Leaderboard({ vessels, selectedVessel, onSelectVessel }) {
+const TYPE_FILTERS = [
+  { key: 'ALL',       label: 'All',       emoji: null },
+  { key: 'CONTAINER', label: 'Container', emoji: '📦' },
+  { key: 'TANKER',    label: 'Tanker',    emoji: '🛢️' },
+  { key: 'PASSENGER', label: 'Passenger', emoji: '🚢' },
+  { key: 'CARGO',     label: 'Cargo',     emoji: '🚚' },
+  { key: 'SERVICE',   label: 'Service',   emoji: '🚤' },
+  { key: 'FISHING',   label: 'Fishing',   emoji: '🐟' },
+]
+
+export default function Leaderboard({ vessels, selectedVessel, onSelectVessel, typeFilter, onTypeFilterChange }) {
   // Sort by CO2 emissions descending, take top 15
   const topEmitters = [...vessels]
     .filter((v) => v.co2PerDayTonnes > 0)
@@ -13,9 +23,24 @@ export default function Leaderboard({ vessels, selectedVessel, onSelectVessel })
   return (
     <div className="h-full flex flex-col bg-bg-card rounded-lg border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border">
-        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2 mb-2">
           <span className="text-danger">●</span> Top Emitters — Live
         </h2>
+        <div className="flex flex-wrap gap-1">
+          {TYPE_FILTERS.map(({ key, label, emoji }) => (
+            <button
+              key={key}
+              onClick={() => onTypeFilterChange(key)}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                typeFilter === key
+                  ? 'bg-accent-teal/20 text-accent-teal border-accent-teal/40'
+                  : 'bg-bg-secondary text-text-muted border-border hover:border-text-muted'
+              }`}
+            >
+              {emoji && <span className="mr-1">{emoji}</span>}{label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">

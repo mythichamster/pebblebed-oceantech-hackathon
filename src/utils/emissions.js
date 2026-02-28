@@ -38,11 +38,13 @@ export function calculateEmissions(vessel) {
   const co2PerDayTonnes = fuelBurnedTonnesPerDay * emissionFactor
 
   // 5. Assign emission tier
+  // Thresholds calibrated for harbor traffic: slow service vessels are LOW,
+  // moving tankers/cargo are MODERATE, fast large ships are HIGH.
   let emissionTier, tierColor
-  if (co2PerDayTonnes > 300) {
+  if (co2PerDayTonnes > 150) {
     emissionTier = 'HIGH'
     tierColor = '#ff4d4d'
-  } else if (co2PerDayTonnes > 100) {
+  } else if (co2PerDayTonnes > 30) {
     emissionTier = 'MODERATE'
     tierColor = '#ff9500'
   } else {

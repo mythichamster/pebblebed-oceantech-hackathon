@@ -35,6 +35,16 @@ export function getVesselSpecs(typeCode) {
   return VESSEL_SPECS.default
 }
 
+// Returns a stable key used for type filtering
+export function getVesselTypeKey(typeCode) {
+  if (typeCode >= 70 && typeCode <= 79) return 'CONTAINER'
+  if (typeCode >= 80 && typeCode <= 89) return 'TANKER'
+  if (typeCode >= 60 && typeCode <= 69) return 'PASSENGER'
+  if (typeCode === 30) return 'FISHING'
+  if (typeCode >= 50 && typeCode <= 59) return 'SERVICE'
+  return 'CARGO'
+}
+
 export function getVesselTypeName(typeCode) {
   if (typeCode >= 70 && typeCode <= 79) return 'Container Ship'
   if (typeCode >= 80 && typeCode <= 89) return 'Tanker'
