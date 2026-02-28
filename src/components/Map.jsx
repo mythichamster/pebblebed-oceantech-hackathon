@@ -26,7 +26,6 @@ export default function Map({ vessels, selectedVessel, onSelectVessel, authority
   const map = useRef(null)
   const deckOverlay = useRef(null)
   const zonesAdded = useRef(false)
-  const [viewState, setViewState] = useState(INITIAL_VIEW)
   const [tooltip, setTooltip] = useState(null)
 
   // Initialize map
@@ -75,18 +74,6 @@ export default function Map({ vessels, selectedVessel, onSelectVessel, authority
 
     // Add navigation controls
     map.current.addControl(new mapboxgl.NavigationControl(), 'top-left')
-
-    // Sync view state
-    map.current.on('move', () => {
-      const center = map.current.getCenter()
-      setViewState({
-        longitude: center.lng,
-        latitude: center.lat,
-        zoom: map.current.getZoom(),
-        pitch: map.current.getPitch(),
-        bearing: map.current.getBearing(),
-      })
-    })
 
     // Add zone circle layers once map style loads
     map.current.on('load', () => {

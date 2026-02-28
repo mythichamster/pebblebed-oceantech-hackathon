@@ -14,7 +14,6 @@ function App() {
   const [selectedVessel, setSelectedVessel] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [demoMode, setDemoMode] = useState(false)
-  const [connected, setConnected] = useState(false)
   const [tierFilter, setTierFilter] = useState('ALL') // ALL, HIGH, MODERATE, LOW
   const [typeFilter, setTypeFilter] = useState('ALL') // ALL, CONTAINER, TANKER, PASSENGER, FISHING, SERVICE, CARGO
   const [authorityFilter, setAuthorityFilter] = useState('ALL') // ALL, EPA (200NM), STATE (20NM), PORT (2NM)
@@ -37,7 +36,6 @@ function App() {
     ws.onopen = () => {
       if (wsRef.current !== ws) return // stale connection, a newer one took over
       console.log('✅ WebSocket connected')
-      setConnected(true)
     }
 
     ws.onmessage = (event) => {
@@ -64,7 +62,6 @@ function App() {
     ws.onclose = () => {
       if (wsRef.current !== ws) return // stale connection, ignore
       console.log('🔌 WebSocket disconnected, reconnecting in 3s...')
-      setConnected(false)
       if (isMountedRef.current) {
         reconnectTimeoutRef.current = setTimeout(connect, 3000)
       }
@@ -195,12 +192,6 @@ function App() {
         </div>
       </div>
 
-      {/* Connection Status */}
-      {!connected && (
-        <div className="fixed bottom-4 right-4 bg-warning/20 text-warning px-3 py-2 rounded-lg text-sm">
-          ⏳ Connecting to server...
-        </div>
-      )}
     </div>
   )
 }

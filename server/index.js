@@ -129,7 +129,7 @@ function initDemoVessels() {
     const pos = randomPosition()
     const mmsi = randomMMSI()
     const shipTypeCode = SHIP_TYPES[Math.floor(Math.random() * SHIP_TYPES.length)]
-    const speed = 5 + Math.random() * 15 // 5-20 knots
+    const speed = 2 + Math.random() * 10 // 2-12 knots — harbor approach speeds
     const heading = Math.floor(Math.random() * 360)
 
     const vessel = {
@@ -180,7 +180,7 @@ function updateVesselPositions() {
 
     // Occasionally vary speed slightly
     if (Math.random() < 0.1) {
-      vessel.speed = Math.max(3, Math.min(22, vessel.speed + (Math.random() - 0.5) * 2))
+      vessel.speed = Math.max(1, Math.min(12, vessel.speed + (Math.random() - 0.5) * 2))
       const emissions = calculateEmissions(vessel)
       Object.assign(vessel, emissions)
     }
