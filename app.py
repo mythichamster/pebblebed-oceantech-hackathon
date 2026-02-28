@@ -1,174 +1,214 @@
-import math
+"""OceanTech AI Tool — Streamlit entrypoint.
+
+UI concerns only. All business logic lives in src/.
+"""
+
+from __future__ import annotations
+
 from datetime import date, timedelta
 
-import anthropic
-import pandas as pd
 import plotly.graph_objects as go
-import requests
 import streamlit as st
-from dotenv import load_dotenv
 
-load_dotenv()
+from src.analysis.pipeline import find_nearest_station, select_noaa_product
+from src.claude_client import get_ocean_analysis
+from src.data.ocean import fetch_noaa_stations, fetch_water_levels, geocode_zip_code
+from src.exceptions import GeocodingError, NoaaApiError, OceanDataError
 
-client = anthropic.Anthropic()
-
-st.title("OceanTech AI Tool")
-
-tab1, tab2 = st.tabs(["Water Level Visualizer", "AI Ocean Analysis"])
-
-with tab1:
+def _render_water_level_tab() -> None:
+    """Render the water level visualizer tab."""
     st.header("Water Level Visualizer")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    col_zip, col_start, col_end = st.columns(3)
+    with col_zip:
         zip_code = st.text_input("ZIP Code", placeholder="e.g. 10001")
-    with col2:
+    with col_start:
         start_date = st.date_input("Start Date", value=date.today() - timedelta(days=7))
-    with col3:
+    with col_end:
         end_date = st.date_input("End Date", value=date.today())
 
-    if st.button("Fetch Water Levels"):
-        if not zip_code:
-            st.error("Please enter a ZIP code.")
-            st.stop()
-        if end_date <= start_date:
-            st.error("End date must be after start date.")
-            st.stop()
+    if not st.button("Fetch Water Levels"):
+        return
 
-        # Step 1: Geocode zip code via Nominatim
-        with st.spinner("Looking up location..."):
-            try:
-                geo_resp = requests.get(
-                    "https://nominatim.openstreetmap.org/search",
-                    params={"postalcode": zip_code, "country": "US", "format": "json"},
-                    headers={"User-Agent": "OceanTechHackathon/1.0"},
-                    timeout=10,
-                )
-                geo_data = geo_resp.json()
-            except Exception as e:
-                st.error(f"Geocoding request failed: {e}")
-                st.stop()
+    if not _validate_inputs(zip_code, start_date, end_date):
+        return
 
-            if not geo_data:
-                st.error(f"Could not find location for ZIP code {zip_code}.")
-                st.stop()
+    location = _resolve_location(zip_code)
+    if location is None:
+        return
 
-            lat = float(geo_data[0]["lat"])
-            lon = float(geo_data[0]["lon"])
-            st.info(f"Location: {geo_data[0]['display_name']} ({lat:.4f}, {lon:.4f})")
+    station, distance_miles = _resolve_nearest_station(
+        location["lat"], location["lon"]
+    )
+    if station is None:
+        return
 
-        # Step 2: Find nearest NOAA water level station
-        with st.spinner("Finding nearest water level station..."):
-            try:
-                stations_resp = requests.get(
-                    "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json",
-                    params={"type": "waterlevels"},
-                    timeout=15,
-                )
-                stations = stations_resp.json()["stations"]
-            except Exception as e:
-                st.error(f"Failed to fetch NOAA stations: {e}")
-                st.stop()
+    days = (end_date - start_date).days
+    product = select_noaa_product(days)
 
-            def haversine(lat1, lon1, lat2, lon2):
-                R = 3958.8  # miles
-                dlat = math.radians(lat2 - lat1)
-                dlon = math.radians(lon2 - lon1)
-                a = (
-                    math.sin(dlat / 2) ** 2
-                    + math.cos(math.radians(lat1))
-                    * math.cos(math.radians(lat2))
-                    * math.sin(dlon / 2) ** 2
-                )
-                return R * 2 * math.asin(math.sqrt(a))
+    water_level_df = _load_water_levels(station["id"], start_date, end_date, product)
+    if water_level_df is None:
+        return
 
-            nearest = min(
-                stations,
-                key=lambda s: haversine(lat, lon, float(s["lat"]), float(s["lng"])),
-            )
-            dist = haversine(lat, lon, float(nearest["lat"]), float(nearest["lng"]))
-            st.success(
-                f"Nearest station: **{nearest['name']}** (ID: {nearest['id']}) — {dist:.1f} miles away"
-            )
-
-        # Step 3: Choose product based on date range
-        days = (end_date - start_date).days
-        if days <= 31:
-            product = "water_level"
-        elif days <= 365:
-            product = "hourly_height"
-        else:
-            product = "daily_mean"
-
-        with st.spinner(f"Fetching water level data ({product.replace('_', ' ')})..."):
-            try:
-                wl_resp = requests.get(
-                    "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter",
-                    params={
-                        "begin_date": start_date.strftime("%Y%m%d"),
-                        "end_date": end_date.strftime("%Y%m%d"),
-                        "station": nearest["id"],
-                        "product": product,
-                        "datum": "MLLW",
-                        "time_zone": "lst_ldt",
-                        "units": "english",
-                        "format": "json",
-                    },
-                    timeout=30,
-                )
-                wl_json = wl_resp.json()
-            except Exception as e:
-                st.error(f"Failed to fetch water level data: {e}")
-                st.stop()
-
-            if "error" in wl_json:
-                st.error(f"NOAA API error: {wl_json['error']['message']}")
-                st.stop()
-
-            if "data" not in wl_json:
-                st.error("No water level data returned for this station and date range.")
-                st.stop()
-
-            df = pd.DataFrame(wl_json["data"])
-            df["t"] = pd.to_datetime(df["t"])
-            df["v"] = pd.to_numeric(df["v"], errors="coerce")
-            df = df.dropna(subset=["v"])
-
-        # Step 4: Plot
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=df["t"],
-                y=df["v"],
-                mode="lines",
-                name="Water Level",
-                line=dict(color="#1f77b4", width=1.5),
-                hovertemplate="%{x}<br>%{y:.2f} ft<extra></extra>",
-            )
+    fig = go.Figure(
+        go.Scatter(
+            x=water_level_df["timestamp"],
+            y=water_level_df["water_level_ft"],
+            mode="lines",
+            name="Water Level",
+            line={"color": "#1f77b4", "width": 1.5},
+            hovertemplate="%{x}<br>%{y:.2f} ft<extra></extra>",
         )
-        fig.update_layout(
-            title=f"Water Level at {nearest['name']} ({nearest['id']})",
-            xaxis_title="Date / Time",
-            yaxis_title="Water Level (ft, MLLW)",
-            hovermode="x unified",
-            margin=dict(t=50, b=40),
+    )
+    fig.update_layout(
+        title=f"Water Level at {station['name']} ({station['id']})",
+        xaxis_title="Date / Time",
+        yaxis_title="Water Level (ft, MLLW)",
+        hovermode="x unified",
+        margin={"t": 50, "b": 40},
+    )
+    st.plotly_chart(fig, width='stretch')
+
+    with st.expander("Raw data"):
+        st.dataframe(
+            water_level_df.rename(
+                columns={"timestamp": "Time", "water_level_ft": "Water Level (ft)"}
+            ),
+            width='stretch',
         )
-        st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("Raw data"):
-            st.dataframe(
-                df[["t", "v"]].rename(columns={"t": "Time", "v": "Water Level (ft)"}),
-                use_container_width=True,
-            )
 
-with tab2:
+def _render_ai_tab() -> None:
+    """Render the AI ocean analysis tab."""
     st.header("AI Ocean Analysis")
     user_input = st.text_area("Describe your ocean problem:")
     if st.button("Analyze"):
         with st.spinner("Thinking..."):
-            message = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=1024,
-                messages=[{"role": "user", "content": user_input}],
-            )
-            st.write(message.content[0].text)
+            try:
+                answer = get_ocean_analysis(user_input)
+            except Exception as exc:
+                st.error(f"Analysis failed: {exc}")
+                return
+        st.write(answer)
+
+
+def _validate_inputs(
+    zip_code: str,
+    start_date: date,
+    end_date: date,
+) -> bool:
+    """Validate user inputs and display errors for any violations.
+
+    Args:
+        zip_code: The ZIP code entered by the user.
+        start_date: The selected start date.
+        end_date: The selected end date.
+
+    Returns:
+        True if all inputs are valid, False otherwise.
+    """
+    if not zip_code:
+        st.error("Please enter a ZIP code.")
+        return False
+    if end_date <= start_date:
+        st.error("End date must be after start date.")
+        return False
+    return True
+
+
+def _resolve_location(
+    zip_code: str,
+) -> dict[str, float | str] | None:
+    """Geocode a ZIP code and display progress/error in the UI.
+
+    Args:
+        zip_code: The ZIP code to resolve.
+
+    Returns:
+        A GeocodingResult dict, or None if geocoding failed.
+    """
+    with st.spinner("Looking up location..."):
+        try:
+            location = geocode_zip_code(zip_code)
+        except GeocodingError as exc:
+            st.error(str(exc))
+            return None
+
+    st.info(
+        f"{location['display_name']} "
+        f"({location['lat']:.4f}, {location['lon']:.4f})"
+    )
+    return location  # type: ignore[return-value]  # TypedDict is a dict subtype
+
+
+def _resolve_nearest_station(
+    lat: float,
+    lon: float,
+) -> tuple[dict[str, object], float] | tuple[None, None]:
+    """Fetch all NOAA stations, find the nearest one, and report it in the UI.
+
+    Args:
+        lat: Target latitude in decimal degrees.
+        lon: Target longitude in decimal degrees.
+
+    Returns:
+        A (station, distance_miles) tuple, or (None, None) on failure.
+    """
+    with st.spinner("Finding nearest water level station..."):
+        try:
+            stations = fetch_noaa_stations()
+        except OceanDataError as exc:
+            st.error(str(exc))
+            return None, None
+
+        station, distance_miles = find_nearest_station(lat, lon, stations)
+
+    st.success(
+        f"Nearest station: **{station['name']}** (ID: {station['id']}) "
+        f"— {distance_miles:.1f} miles away"
+    )
+    return station, distance_miles  # type: ignore[return-value]
+
+
+def _load_water_levels(
+    station_id: str,
+    start_date: date,
+    end_date: date,
+    product: str,
+) -> object | None:
+    """Fetch water level data and display progress/error in the UI.
+
+    Args:
+        station_id: NOAA station identifier.
+        start_date: Start of the requested range.
+        end_date: End of the requested range.
+        product: NOAA data product name.
+
+    Returns:
+        A DataFrame with ``timestamp`` and ``water_level_ft`` columns,
+        or None if the request failed.
+    """
+    label = product.replace("_", " ")
+    with st.spinner(f"Fetching {label} data..."):
+        try:
+            return fetch_water_levels(station_id, start_date, end_date, product)
+        except NoaaApiError as exc:
+            st.error(f"NOAA API error: {exc}")
+        except OceanDataError as exc:
+            st.error(str(exc))
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Streamlit entry point — must come after all function definitions
+# ---------------------------------------------------------------------------
+
+st.title("OceanTech AI Tool")
+
+tab_water, tab_ai = st.tabs(["Water Level Visualizer", "AI Ocean Analysis"])
+
+with tab_water:
+    _render_water_level_tab()
+
+with tab_ai:
+    _render_ai_tab()
