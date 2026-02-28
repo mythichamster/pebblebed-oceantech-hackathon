@@ -31,6 +31,7 @@ function App() {
     const ws = new WebSocket(WS_URL)
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return // stale connection, a newer one took over
       console.log('✅ WebSocket connected')
       setConnected(true)
     }
@@ -57,9 +58,9 @@ function App() {
     }
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) return // stale connection, ignore
       console.log('🔌 WebSocket disconnected, reconnecting in 3s...')
       setConnected(false)
-      // Only reconnect if the component is still mounted (not a cleanup close)
       if (isMountedRef.current) {
         reconnectTimeoutRef.current = setTimeout(connect, 3000)
       }

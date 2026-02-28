@@ -331,11 +331,19 @@ server.listen(PORT, () => {
   // Connect to AIS Stream or init demo mode
   connectToAISStream()
 
-  // Update positions and broadcast every 5 seconds
-  setInterval(() => {
-    if (!AISSTREAM_API_KEY) {
-      updateVesselPositions()
-    }
+  // Two-phase broadcast: fast (every 3s) for the first 20 ticks while
+  // vessels are streaming in, then slow (every 30s) steady state.
+  const FAST_TICKS = 20
+  const FAST_MS = 3000
+  const SLOW_MS = 30000
+  let tickCount = 0
+
+  function scheduledBroadcast() {
+    if (!AISSTREAM_API_KEY) updateVesselPositions()
     broadcastVessels()
-  }, 5000)
+    tickCount++
+    setTimeout(scheduledBroadcast, tickCount < FAST_TICKS ? FAST_MS : SLOW_MS)
+  }
+
+  setTimeout(scheduledBroadcast, FAST_MS)
 })
