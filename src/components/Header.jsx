@@ -57,7 +57,7 @@ export default function Header({
 
         {/* Port-level CO2 stat */}
         <div className="flex items-center gap-2 px-3 py-1.5 bg-bg-card rounded border border-border">
-          <span className="text-sm text-text-muted">📍 LA/Long Beach:</span>
+          <span className="text-sm text-text-muted">📍 New York / NJ:</span>
           <span className="text-lg font-mono font-bold text-accent-teal">
             ~{totalCO2?.toLocaleString() || '0'}
           </span>

@@ -17,17 +17,18 @@ app.use(express.json())
 const PORT = process.env.PORT || 3001
 const AISSTREAM_API_KEY = process.env.AISSTREAM_API_KEY
 
-// LA/Long Beach bounding box
-const LA_BOUNDS = {
-  name: 'Los Angeles',
-  minLat: 33.5,
-  minLon: -118.5,
-  maxLat: 34.0,
-  maxLon: -117.8,
+// Port of New York / New Jersey bounding box
+const NY_BOUNDS = {
+  name: 'New York',
+  minLat: 40.45,
+  minLon: -74.30,
+  maxLat: 40.85,
+  maxLon: -73.70,
 }
 
 // Vessel state storage
 const vessels = new Map()
+let isDemoMode = false
 
 // Demo vessel names
 const VESSEL_NAMES = [
@@ -51,8 +52,8 @@ const SHIP_TYPES = [70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 
 
 // Generate random position within LA bounds
 function randomPosition() {
-  const lat = LA_BOUNDS.minLat + Math.random() * (LA_BOUNDS.maxLat - LA_BOUNDS.minLat)
-  const lon = LA_BOUNDS.minLon + Math.random() * (LA_BOUNDS.maxLon - LA_BOUNDS.minLon)
+  const lat = NY_BOUNDS.minLat + Math.random() * (NY_BOUNDS.maxLat - NY_BOUNDS.minLat)
+  const lon = NY_BOUNDS.minLon + Math.random() * (NY_BOUNDS.maxLon - NY_BOUNDS.minLon)
   return { lat, lon }
 }
 
@@ -142,7 +143,7 @@ function initDemoVessels() {
       course: heading,
       lastUpdated: Date.now(),
       imo: 9000000 + Math.floor(Math.random() * 999999),
-      port: 'Los Angeles',
+      port: 'New York',
     }
 
     // Add emissions data
@@ -157,7 +158,7 @@ function initDemoVessels() {
 
 // Update vessel positions (simulate movement)
 function updateVesselPositions() {
-  vessels.forEach((vessel, mmsi) => {
+  vessels.forEach((vessel) => {
     // Move vessel slightly based on heading and speed
     const speedKmH = vessel.speed * 1.852 // knots to km/h
     const distanceKm = (speedKmH / 3600) * 5 // distance in 5 seconds
@@ -168,13 +169,13 @@ function updateVesselPositions() {
     vessel.longitude += Math.sin(headingRad) * distanceDeg
 
     // Keep within bounds, bounce off edges
-    if (vessel.latitude < LA_BOUNDS.minLat || vessel.latitude > LA_BOUNDS.maxLat) {
+    if (vessel.latitude < NY_BOUNDS.minLat || vessel.latitude > NY_BOUNDS.maxLat) {
       vessel.heading = (180 - vessel.heading + 360) % 360
-      vessel.latitude = Math.max(LA_BOUNDS.minLat, Math.min(LA_BOUNDS.maxLat, vessel.latitude))
+      vessel.latitude = Math.max(NY_BOUNDS.minLat, Math.min(NY_BOUNDS.maxLat, vessel.latitude))
     }
-    if (vessel.longitude < LA_BOUNDS.minLon || vessel.longitude > LA_BOUNDS.maxLon) {
+    if (vessel.longitude < NY_BOUNDS.minLon || vessel.longitude > NY_BOUNDS.maxLon) {
       vessel.heading = (360 - vessel.heading) % 360
-      vessel.longitude = Math.max(LA_BOUNDS.minLon, Math.min(LA_BOUNDS.maxLon, vessel.longitude))
+      vessel.longitude = Math.max(NY_BOUNDS.minLon, Math.min(NY_BOUNDS.maxLon, vessel.longitude))
     }
 
     // Occasionally vary speed slightly
@@ -204,7 +205,7 @@ wss.on('connection', (ws) => {
 
   // Send current vessel state immediately
   const vesselArray = Array.from(vessels.values())
-  ws.send(JSON.stringify({ type: 'vesselUpdate', vessels: vesselArray, demoMode: true }))
+  ws.send(JSON.stringify({ type: 'vesselUpdate', vessels: vesselArray, demoMode: isDemoMode }))
 
   ws.on('close', () => {
     console.log('📡 Client disconnected')
@@ -215,7 +216,7 @@ wss.on('connection', (ws) => {
 // Broadcast vessel updates to all clients
 function broadcastVessels() {
   const vesselArray = Array.from(vessels.values())
-  const message = JSON.stringify({ type: 'vesselUpdate', vessels: vesselArray, demoMode: true })
+  const message = JSON.stringify({ type: 'vesselUpdate', vessels: vesselArray, demoMode: isDemoMode })
 
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -225,12 +226,12 @@ function broadcastVessels() {
 }
 
 // REST endpoint for initial load
-app.get('/api/vessels', (req, res) => {
+app.get('/api/vessels', (_req, res) => {
   res.json(Array.from(vessels.values()))
 })
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', vesselCount: vessels.size, demoMode: true })
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', vesselCount: vessels.size, demoMode: isDemoMode })
 })
 
 // AIS Stream connection (when API key is available)
@@ -239,6 +240,7 @@ let aisStreamWs = null
 function connectToAISStream() {
   if (!AISSTREAM_API_KEY) {
     console.log('⚠️  No AISSTREAM_API_KEY found, using demo mode')
+    isDemoMode = true
     initDemoVessels()
     return
   }
@@ -253,7 +255,7 @@ function connectToAISStream() {
     const subscription = {
       Apikey: AISSTREAM_API_KEY,
       BoundingBoxes: [
-        [[LA_BOUNDS.minLat, LA_BOUNDS.minLon], [LA_BOUNDS.maxLat, LA_BOUNDS.maxLon]],
+        [[NY_BOUNDS.minLat, NY_BOUNDS.minLon], [NY_BOUNDS.maxLat, NY_BOUNDS.maxLon]],
       ],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }
@@ -273,6 +275,7 @@ function connectToAISStream() {
   aisStreamWs.on('error', (err) => {
     console.error('AIS Stream error:', err.message)
     console.log('⚠️  Falling back to demo mode')
+    isDemoMode = true
     initDemoVessels()
   })
 
@@ -290,7 +293,7 @@ function processAISMessage(msg) {
   const mmsi = MetaData.MMSI
   if (!mmsi) return
 
-  let vessel = vessels.get(mmsi) || { mmsi, port: 'Los Angeles' }
+  let vessel = vessels.get(mmsi) || { mmsi, port: 'New York' }
 
   if (MessageType === 'PositionReport') {
     const pos = Message.PositionReport

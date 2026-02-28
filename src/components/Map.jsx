@@ -6,10 +6,10 @@ import { ScatterplotLayer } from '@deck.gl/layers'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { getVesselTypeName, mmsiToFlag } from '../utils/vesselSpecs'
 
-// LA/Long Beach center
+// Port of New York / New Jersey center
 const INITIAL_VIEW = {
-  longitude: -118.2,
-  latitude: 33.75,
+  longitude: -74.02,
+  latitude: 40.65,
   zoom: 10,
   pitch: 0,
   bearing: 0,
@@ -166,8 +166,8 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
   }, [selectedVessel?.mmsi])
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full" />
+    <div className="relative w-full h-full bg-gray-900">
+      <div ref={mapContainer} className="w-full h-full" style={{ minHeight: '100%' }} />
 
       {/* Tooltip */}
       {tooltip && (
@@ -197,7 +197,7 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
 
       {/* Port Label */}
       <div className="absolute bottom-4 left-4 bg-bg-card/90 border border-border rounded px-3 py-1.5">
-        <span className="text-sm text-white font-medium">📍 Port of Los Angeles / Long Beach</span>
+        <span className="text-sm text-white font-medium">📍 Port of New York / New Jersey</span>
       </div>
     </div>
   )
