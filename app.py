@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-import plotly.graph_objects as go
+import pandas as pd
+import plotly.graph_objects as go  # type: ignore
 import streamlit as st
 
 from src.analysis.pipeline import find_nearest_station, select_noaa_product
 from src.claude_client import get_ocean_analysis
-from src.data.ocean import fetch_noaa_stations, fetch_water_levels, geocode_zip_code
+from src.data.ocean import GeocodingResult, fetch_noaa_stations, fetch_water_levels, geocode_zip_code
 from src.exceptions import GeocodingError, NoaaApiError, OceanDataError
 
 def _render_water_level_tab() -> None:
@@ -46,7 +47,7 @@ def _render_water_level_tab() -> None:
     days = (end_date - start_date).days
     product = select_noaa_product(days)
 
-    water_level_df = _load_water_levels(station["id"], start_date, end_date, product)
+    water_level_df = _load_water_levels(str(station["id"]), start_date, end_date, product)
     if water_level_df is None:
         return
 
@@ -118,7 +119,7 @@ def _validate_inputs(
 
 def _resolve_location(
     zip_code: str,
-) -> dict[str, float | str] | None:
+) -> GeocodingResult | None:
     """Geocode a ZIP code and display progress/error in the UI.
 
     Args:
@@ -175,7 +176,7 @@ def _load_water_levels(
     start_date: date,
     end_date: date,
     product: str,
-) -> object | None:
+) -> pd.DataFrame | None:
     """Fetch water level data and display progress/error in the UI.
 
     Args:
