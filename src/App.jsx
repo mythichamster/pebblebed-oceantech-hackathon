@@ -4,6 +4,7 @@ import Map from './components/Map'
 import Leaderboard from './components/Leaderboard'
 import VesselDetailCard from './components/VesselDetailCard'
 import { getVesselTypeKey } from './utils/vesselSpecs'
+import { distanceNM, NY_HARBOR_CENTER } from './utils/geo'
 import './index.css'
 
 const WS_URL = 'ws://localhost:3001'
@@ -16,6 +17,7 @@ function App() {
   const [connected, setConnected] = useState(false)
   const [tierFilter, setTierFilter] = useState('ALL') // ALL, HIGH, MODERATE, LOW
   const [typeFilter, setTypeFilter] = useState('ALL') // ALL, CONTAINER, TANKER, PASSENGER, FISHING, SERVICE, CARGO
+  const [authorityFilter, setAuthorityFilter] = useState('ALL') // ALL, EPA (200NM), STATE (20NM), PORT (2NM)
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
   const selectedVesselRef = useRef(null)
@@ -103,6 +105,9 @@ function App() {
       })
   }, [])
 
+  // Radius in NM for each regulatory authority zone
+  const AUTHORITY_RADIUS_NM = { EPA: 200, STATE: 20, PORT: 2 }
+
   // Calculate total CO2 and tier counts
   const { totalCO2, tierCounts, filteredVessels } = useMemo(() => {
     const counts = { HIGH: 0, MODERATE: 0, LOW: 0 }
@@ -123,12 +128,19 @@ function App() {
       filtered = filtered.filter((v) => getVesselTypeKey(v.shipTypeCode) === typeFilter)
     }
 
+    if (authorityFilter !== 'ALL') {
+      const radiusNM = AUTHORITY_RADIUS_NM[authorityFilter]
+      filtered = filtered.filter((v) =>
+        distanceNM(NY_HARBOR_CENTER.lat, NY_HARBOR_CENTER.lon, v.latitude, v.longitude) <= radiusNM
+      )
+    }
+
     return {
       totalCO2: Math.round(total),
       tierCounts: counts,
       filteredVessels: filtered,
     }
-  }, [vessels, tierFilter, typeFilter])
+  }, [vessels, tierFilter, typeFilter, authorityFilter])
 
   const handleSelectVessel = useCallback((vessel) => {
     setSelectedVessel(vessel)
@@ -159,6 +171,8 @@ function App() {
             vessels={filteredVessels}
             selectedVessel={selectedVessel}
             onSelectVessel={handleSelectVessel}
+            authorityFilter={authorityFilter}
+            onAuthorityFilterChange={setAuthorityFilter}
           />
         </div>
 

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import { DeckGL } from '@deck.gl/react'
-import { ScatterplotLayer } from '@deck.gl/layers'
 import { MapboxOverlay } from '@deck.gl/mapbox'
+import { ScatterplotLayer } from '@deck.gl/layers'
 import { getVesselTypeName, mmsiToFlag } from '../utils/vesselSpecs'
+import { NY_HARBOR_CENTER, circlePolygon } from '../utils/geo'
 
 // Port of New York / New Jersey center
 const INITIAL_VIEW = {
@@ -15,10 +15,17 @@ const INITIAL_VIEW = {
   bearing: 0,
 }
 
-export default function Map({ vessels, selectedVessel, onSelectVessel }) {
+const ZONE_LAYERS = [
+  { key: 'EPA',   label: 'EPA Zone',   nm: '200 NM', radiusNM: 200, color: '#ff9500', fillOpacity: 0.04, lineOpacity: 0.6 },
+  { key: 'STATE', label: 'State Zone', nm: '20 NM',  radiusNM: 20,  color: '#6366f1', fillOpacity: 0.06, lineOpacity: 0.7 },
+  { key: 'PORT',  label: 'Port Zone',  nm: '2 NM',   radiusNM: 2,   color: '#00d4b4', fillOpacity: 0.10, lineOpacity: 0.9 },
+]
+
+export default function Map({ vessels, selectedVessel, onSelectVessel, authorityFilter, onAuthorityFilterChange }) {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const deckOverlay = useRef(null)
+  const zonesAdded = useRef(false)
   const [viewState, setViewState] = useState(INITIAL_VIEW)
   const [tooltip, setTooltip] = useState(null)
 
@@ -63,9 +70,7 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
     })
 
     // Add deck.gl overlay
-    deckOverlay.current = new MapboxOverlay({
-      layers: [],
-    })
+    deckOverlay.current = new MapboxOverlay({ layers: [] })
     map.current.addControl(deckOverlay.current)
 
     // Add navigation controls
@@ -83,17 +88,63 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
       })
     })
 
-    // Add port label
+    // Add zone circle layers once map style loads
     map.current.on('load', () => {
-      // Optional: add a marker for the port
+      ZONE_LAYERS.forEach(({ key, radiusNM, color, fillOpacity, lineOpacity }) => {
+        const geojson = circlePolygon(NY_HARBOR_CENTER.lon, NY_HARBOR_CENTER.lat, radiusNM)
+
+        map.current.addSource(`zone-${key}`, {
+          type: 'geojson',
+          data: geojson,
+        })
+
+        map.current.addLayer({
+          id: `zone-${key}-fill`,
+          type: 'fill',
+          source: `zone-${key}`,
+          paint: {
+            'fill-color': color,
+            'fill-opacity': fillOpacity,
+          },
+        })
+
+        map.current.addLayer({
+          id: `zone-${key}-line`,
+          type: 'line',
+          source: `zone-${key}`,
+          paint: {
+            'line-color': color,
+            'line-opacity': lineOpacity,
+            'line-width': 1.5,
+            'line-dasharray': [4, 3],
+          },
+        })
+      })
+
+      zonesAdded.current = true
     })
 
     return () => {
       map.current?.remove()
       map.current = null
       deckOverlay.current = null
+      zonesAdded.current = false
     }
   }, [])
+
+  // Highlight active zone: raise opacity for active, dim the rest
+  useEffect(() => {
+    if (!map.current || !zonesAdded.current) return
+
+    ZONE_LAYERS.forEach(({ key, fillOpacity, lineOpacity }) => {
+      const isActive = authorityFilter === key
+      const fillMult = authorityFilter === 'ALL' ? 1 : isActive ? 2.5 : 0.3
+      const lineMult = authorityFilter === 'ALL' ? 1 : isActive ? 1.5 : 0.3
+
+      map.current.setPaintProperty(`zone-${key}-fill`, 'fill-opacity', fillOpacity * fillMult)
+      map.current.setPaintProperty(`zone-${key}-line`, 'line-opacity', lineOpacity * lineMult)
+    })
+  }, [authorityFilter])
 
   // Update deck.gl layer when vessels change
   useEffect(() => {
@@ -112,9 +163,7 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
       lineWidthMinPixels: 1,
       getPosition: (d) => [d.longitude, d.latitude],
       getRadius: (d) => {
-        // Larger radius for selected vessel
         if (selectedVessel?.mmsi === d.mmsi) return 12
-        // Scale by emissions
         return Math.max(6, Math.min(15, d.co2PerDayTonnes / 30))
       },
       getFillColor: (d) => {
@@ -122,28 +171,19 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
         const r = parseInt(hex.slice(1, 3), 16)
         const g = parseInt(hex.slice(3, 5), 16)
         const b = parseInt(hex.slice(5, 7), 16)
-        // Highlight selected
         const alpha = selectedVessel?.mmsi === d.mmsi ? 255 : 200
         return [r, g, b, alpha]
       },
       getLineColor: (d) => {
-        if (selectedVessel?.mmsi === d.mmsi) {
-          return [0, 212, 180, 255] // accent-teal
-        }
-        return [30, 58, 95, 255] // border color
+        if (selectedVessel?.mmsi === d.mmsi) return [0, 212, 180, 255]
+        return [30, 58, 95, 255]
       },
       getLineWidth: (d) => (selectedVessel?.mmsi === d.mmsi ? 3 : 1),
       onClick: ({ object }) => {
-        if (object) {
-          onSelectVessel(object)
-        }
+        if (object) onSelectVessel(object)
       },
       onHover: ({ object, x, y }) => {
-        if (object) {
-          setTooltip({ object, x, y })
-        } else {
-          setTooltip(null)
-        }
+        setTooltip(object ? { object, x, y } : null)
       },
       updateTriggers: {
         getRadius: [selectedVessel?.mmsi],
@@ -171,14 +211,49 @@ export default function Map({ vessels, selectedVessel, onSelectVessel }) {
     <div className="relative w-full h-full bg-gray-900">
       <div ref={mapContainer} className="w-full h-full" style={{ minHeight: '100%' }} />
 
+      {/* Regulatory Authority Selector */}
+      <div className="absolute top-4 right-4 z-10 bg-bg-card/95 border border-border rounded-lg overflow-hidden shadow-xl">
+        <div className="px-3 py-2 border-b border-border">
+          <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Regulatory Zone</span>
+        </div>
+        <div className="p-2 space-y-1">
+          <button
+            onClick={() => onAuthorityFilterChange('ALL')}
+            className={`w-full px-3 py-1.5 rounded text-xs text-left flex items-center gap-2 transition-colors ${
+              authorityFilter === 'ALL'
+                ? 'bg-bg-secondary text-white font-medium'
+                : 'text-text-muted hover:text-white hover:bg-bg-secondary/50'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-text-muted/40 inline-block" />
+            All Ships
+          </button>
+          {ZONE_LAYERS.map(({ key, label, nm, color }) => (
+            <button
+              key={key}
+              onClick={() => onAuthorityFilterChange(authorityFilter === key ? 'ALL' : key)}
+              className={`w-full px-3 py-1.5 rounded text-xs text-left flex items-center gap-2 transition-colors ${
+                authorityFilter === key
+                  ? 'bg-bg-secondary text-white font-medium'
+                  : 'text-text-muted hover:text-white hover:bg-bg-secondary/50'
+              }`}
+            >
+              <span
+                className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+                style={{ backgroundColor: color }}
+              />
+              <span className="flex-1">{label}</span>
+              <span className="text-text-muted font-mono">{nm}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Tooltip */}
       {tooltip && (
         <div
           className="absolute pointer-events-none z-10 bg-bg-card border border-border rounded-lg px-3 py-2 shadow-xl"
-          style={{
-            left: tooltip.x + 10,
-            top: tooltip.y + 10,
-          }}
+          style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}
         >
           <div className="text-sm font-semibold text-white">
             {tooltip.object.name || `Vessel ${tooltip.object.mmsi}`}

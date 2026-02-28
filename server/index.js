@@ -84,10 +84,10 @@ function calculateEmissions(vessel) {
   const co2PerDayTonnes = fuelBurnedTonnesPerDay * emissionFactor
 
   let emissionTier, tierColor
-  if (co2PerDayTonnes > 150) {
+  if (co2PerDayTonnes > 80) {
     emissionTier = 'HIGH'
     tierColor = '#ff4d4d'
-  } else if (co2PerDayTonnes > 30) {
+  } else if (co2PerDayTonnes > 10) {
     emissionTier = 'MODERATE'
     tierColor = '#ff9500'
   } else {
